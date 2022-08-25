@@ -107,7 +107,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     stdin().lock().read_to_end(&mut buf).expect("couldn't read from stdin");
                     String::from_utf8_lossy(buf.as_ref()).into()
                 });
-                let result = client.post(url).bearer_auth(&token).multipart(Form::new().text(key, value)).send()?;
+                let form = Form::new().text(key, value).percent_encode_noop();
+                let result = client.post(url).bearer_auth(&token).multipart(form).send()?;
                 if result.status().is_success() {
                     status(&mut stderr, &"Set", &"OK")?;
                 } else {
