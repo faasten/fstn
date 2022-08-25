@@ -3,6 +3,7 @@ name = "fstn"
 description = "A CLI client for interacting with Faasten"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/faasten/fstn"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
