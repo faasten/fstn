@@ -21,6 +21,12 @@ struct Cli {
 }
 
 #[derive(Parser, Debug)]
+struct List {
+    /// Database key to get
+    dir: String,
+}
+
+#[derive(Parser, Debug)]
 struct Get {
     /// Database key to get
     key: String,
@@ -54,6 +60,7 @@ enum Action {
     Put(Blob),
     /// Download a "blob" to a local file
     Fetch(Blob),
+    List(List),
 }
 
 fn status(
@@ -147,6 +154,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             } else {
                 status(&mut stderr, &"Get", &"you must first login")?;
+            }
+        }
+        Action::List(List { dir }) => {
+            if let Ok(token) = check_credential(&server) {
+                let url =
+                    Url::parse_with_params(format!("{}/read_dir", server).as_str(), &[("dir", &dir)])?;
+                let result = client
+                    .get(url)
+                    .bearer_auth(&token)
+                    .send()?
+                    .json::<Vec<String>>()?;
+                for entry in result.iter() {
+                    println!("{}", entry);
+                }
+                status(&mut stderr, &"List", &"OK")?;
+            } else {
+                status(&mut stderr, &"List", &"you must first login")?;
             }
         }
         Action::Set(Set { key, value }) => {
