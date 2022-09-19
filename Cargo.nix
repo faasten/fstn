@@ -212,10 +212,10 @@ rec {
       };
       "clap" = rec {
         crateName = "clap";
-        version = "3.2.17";
+        version = "3.2.19";
         edition = "2021";
         crateBin = [];
-        sha256 = "0jwm3hbq01cqm5ci1vj2655ky9nyvz19r31jncxk86ckink29rr9";
+        sha256 = "1mbzd518xmwhyk228z5lb01aqiwnmghq5y4za70bad3kfls3km38";
         dependencies = [
           {
             name = "atty";
@@ -289,9 +289,9 @@ rec {
       };
       "clap_derive" = rec {
         crateName = "clap_derive";
-        version = "3.2.17";
+        version = "3.2.18";
         edition = "2021";
-        sha256 = "1ypf8r7cyfcgg29cgdp837sgvyd8mlq7g5pqx2hb86n029q7ym0k";
+        sha256 = "0r9az0cl33xx0i9g18l56l3vd5ayjvcflvza2gdf8jwcab78n37a";
         procMacro = true;
         dependencies = [
           {
@@ -441,7 +441,7 @@ rec {
       };
       "fstn" = rec {
         crateName = "fstn";
-        version = "0.1.1";
+        version = "0.3.0";
         edition = "2021";
         crateBin = [
           { name = "fstn"; path = "src/main.rs"; }
@@ -484,9 +484,9 @@ rec {
       };
       "futures-channel" = rec {
         crateName = "futures-channel";
-        version = "0.3.23";
+        version = "0.3.24";
         edition = "2018";
-        sha256 = "18fakviglagvqn8myi3vqrv3vn0bpf988cs02yzlbmygvp5m5z1b";
+        sha256 = "0l5hkcwv5bsjz3vswpzlp945cjqdrggjqwfn1xfm1pgs506d5g9h";
         dependencies = [
           {
             name = "futures-core";
@@ -505,9 +505,9 @@ rec {
       };
       "futures-core" = rec {
         crateName = "futures-core";
-        version = "0.3.23";
+        version = "0.3.24";
         edition = "2018";
-        sha256 = "058ii8sbxmf20cy5wvqkd0mppvgw21mlf8irdj9kb0nki2pfvb6j";
+        sha256 = "1gsnrvmzddzfvywx9jnc75vxwp78jri1wlz6inw3yb1n0pga6njf";
         features = {
           "default" = [ "std" ];
           "std" = [ "alloc" ];
@@ -516,9 +516,9 @@ rec {
       };
       "futures-io" = rec {
         crateName = "futures-io";
-        version = "0.3.23";
+        version = "0.3.24";
         edition = "2018";
-        sha256 = "1r9829x3y4a98ksvw4jm9jp67njylfyd59jmw8x6m8ims336z9lk";
+        sha256 = "0s7bhmfnbs8pywlhp83bixxi5fn7w73if2vwcdw4bz88lfkx5x5v";
         features = {
           "default" = [ "std" ];
         };
@@ -526,9 +526,9 @@ rec {
       };
       "futures-sink" = rec {
         crateName = "futures-sink";
-        version = "0.3.23";
+        version = "0.3.24";
         edition = "2018";
-        sha256 = "0rb79vnbgbz0pmf78kbiphvppyb3mrsccr00kgyzfb3mx4gsw2ya";
+        sha256 = "0mmsyw3ipg3gddm0nh95ly9sr51xc834g0vj1sipnwifm6jhpci1";
         features = {
           "default" = [ "std" ];
           "std" = [ "alloc" ];
@@ -537,9 +537,9 @@ rec {
       };
       "futures-task" = rec {
         crateName = "futures-task";
-        version = "0.3.23";
+        version = "0.3.24";
         edition = "2018";
-        sha256 = "01jkvifc3l2accz0cvl1c7i4q4vj2bxi7pjr9ni5ch0zjcxwcbw4";
+        sha256 = "1wcln9clj15n7c7igm5wp9yj4kfgj526siwhyf9i51bkgi38ql56";
         features = {
           "default" = [ "std" ];
           "std" = [ "alloc" ];
@@ -548,9 +548,9 @@ rec {
       };
       "futures-util" = rec {
         crateName = "futures-util";
-        version = "0.3.23";
+        version = "0.3.24";
         edition = "2018";
-        sha256 = "0xwmb945qb8wbxza325pik2y6z4k2w0ahz6726f24h73f5a8m0ph";
+        sha256 = "144wn33xk4az27xd7cgxrx0v4qygmxm52qmj8cp1vk31psqnrys4";
         dependencies = [
           {
             name = "futures-core";
@@ -831,9 +831,9 @@ rec {
       };
       "httparse" = rec {
         crateName = "httparse";
-        version = "1.7.1";
-        edition = "2015";
-        sha256 = "0k60q1hx96cvmjn6k3yjkff87fz0ga2a4z0g9ss8a9x5nndy4v29";
+        version = "1.8.0";
+        edition = "2018";
+        sha256 = "010rrfahm1jss3p022fqf3j3jmm72vhn4iqhykahb9ynpaag75yq";
         authors = [
           "Sean McArthur <sean@seanmonstar.com>"
         ];
@@ -2078,9 +2078,9 @@ rec {
       };
       "socket2" = rec {
         crateName = "socket2";
-        version = "0.4.4";
+        version = "0.4.6";
         edition = "2018";
-        sha256 = "1q71bsw7sqr3nq71gszywgymxxfv311a3w1aia4k5binjisjpmv6";
+        sha256 = "1anp5mg9s5hn10h0ibrrj8vb5pidz4hf854l3akj56qv6yx8pj8h";
         authors = [
           "Alex Crichton <alex@alexcrichton.com>"
           "Thomas de Zeeuw <thomasdezeeuw@gmail.com>"

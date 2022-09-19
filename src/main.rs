@@ -2,7 +2,7 @@ use core::fmt;
 use std::{
     collections::HashMap,
     fs::File,
-    io::{stdin, BufRead, Read, Write},
+    io::{stdin, BufRead, Read, Write, stdout},
     path::PathBuf,
 };
 
@@ -48,6 +48,12 @@ struct Blob {
     file: PathBuf,
 }
 
+#[derive(Parser, Debug)]
+struct Invoke {
+    function: String,
+    payload: Option<String>,
+}
+
 #[derive(Subcommand, Debug)]
 enum Action {
     /// Login to Faasten
@@ -61,6 +67,7 @@ enum Action {
     /// Download a "blob" to a local file
     Fetch(Blob),
     List(List),
+    Invoke(Invoke),
 }
 
 fn status(
@@ -234,6 +241,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             } else {
                 status(&mut stderr, &"Fetch", &"you must first login")?;
+            }
+        },
+        Action::Invoke(Invoke { function, payload }) => {
+            if let Ok(token) = check_credential(&server) {
+                let url = Url::parse(
+                    format!("{}/invoke/{}", server, function).as_str()
+                )?;
+                let payload = if let Some(p) = payload {
+                    p
+                } else {
+                    let mut buf = String::new();
+                    stdin().read_to_string(&mut buf)?;
+                    buf
+                };
+                let mut result = client.post(url).bearer_auth(&token).header("content-type", "application/json").body(payload).send()?;
+                if result.status().is_success() {
+                    std::io::copy(&mut result, &mut stdout())?;
+                    status(&mut stderr, &"Invoke", &"OK")?;
+                } else {
+                    status(&mut stderr, &"Invoke", &format!("{}", result.status()))?;
+                    result.copy_to(&mut stdout())?;
+                }
+            } else {
+                status(&mut stderr, &"Invoke", &"you must first login")?;
             }
         }
     }
