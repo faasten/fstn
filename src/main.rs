@@ -41,6 +41,12 @@ struct Set {
 }
 
 #[derive(Parser, Debug)]
+struct Delete {
+    /// Database key to delete
+    key: String,
+}
+
+#[derive(Parser, Debug)]
 struct Blob {
     /// Database key pointing to the blob
     key: String,
@@ -62,6 +68,8 @@ enum Action {
     Get(Get),
     /// Set the value of a database key from the provided value or standard in
     Set(Set),
+    /// Delete a database key
+    Delete(Delete),
     /// Put a "blob" from a local file
     Put(Blob),
     /// Download a "blob" to a local file
@@ -204,6 +212,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             } else {
                 status(&mut stderr, &"Set", &"you must first login")?;
+            }
+        }
+        Action::Delete(Delete { key }) => {
+            if let Ok(token) = check_credential(&server) {
+                let url =
+                    Url::parse_with_params(format!("{}/delete", server).as_str(), &[("key", &key)])?;
+                let result = client
+                    .delete(url)
+                    .bearer_auth(&token)
+                    .send()?;
+                if result.status().is_success() {
+                    status(&mut stderr, &"Delete", &"OK")?;
+                } else {
+                    status(&mut stderr, &"Delete", &format!("{}", result.status()))?;
+                }
+            } else {
+                status(&mut stderr, &"Delete", &"you must first login")?;
             }
         }
         Action::Put(Blob { key, file }) => {
