@@ -13,5 +13,7 @@ in pkgs.mkShell {
   nativeBuildInputs = [
     rustPlatform.rust.cargo
     rustPlatform.rust.rustc
+    pkgs.pkg-config
+    pkgs.fuse
   ];
 }

@@ -11,6 +11,8 @@ use reqwest::{blocking::multipart::Form, blocking::Body, Url};
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 use toml::Value;
 
+mod fs;
+
 #[derive(Parser, Debug)]
 #[clap(about = "A CLI client for interacting with Faasten")]
 struct Cli {
@@ -60,6 +62,11 @@ struct Invoke {
     payload: Option<String>,
 }
 
+#[derive(Parser, Debug)]
+struct Mount {
+    path: String
+}
+
 #[derive(Subcommand, Debug)]
 enum Action {
     /// Login to Faasten
@@ -76,6 +83,7 @@ enum Action {
     Fetch(Blob),
     List(List),
     Invoke(Invoke),
+    Mount(Mount),
 }
 
 fn status(
@@ -291,6 +299,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 status(&mut stderr, &"Invoke", &"you must first login")?;
             }
+        },
+        Action::Mount(Mount { path }) => {
+            fuse::mount(fs::FstnFS::default(), &path.as_str(), &[])?;
         }
     }
     Ok(())
