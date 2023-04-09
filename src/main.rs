@@ -1,14 +1,11 @@
 use core::fmt;
 use std::time::Instant;
 use std::{
-    collections::HashMap,
-    fs::File,
     io::{stdin, stdout, BufRead, Read, Write},
-    path::PathBuf,
 };
 
 use clap::{Parser, Subcommand};
-use reqwest::{blocking::multipart::Form, blocking::Body, Url};
+use reqwest::{Url};
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 use toml::Value;
 
@@ -22,44 +19,10 @@ struct Cli {
 }
 
 #[derive(Parser, Debug)]
-struct List {
-    /// Database key to get
-    dir: String,
+struct Invoke {
+    function: String,
+    payload: Option<String>,
 }
-
-#[derive(Parser, Debug)]
-struct Get {
-    /// Database key to get
-    key: String,
-}
-
-#[derive(Parser, Debug)]
-struct Set {
-    /// Database key to set
-    key: String,
-    /// Value to set
-    value: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-struct Delete {
-    /// Database key to delete
-    key: String,
-}
-
-#[derive(Parser, Debug)]
-struct Blob {
-    /// Database key pointing to the blob
-    key: String,
-    /// Path to a local file
-    file: PathBuf,
-}
-
-//#[derive(Parser, Debug)]
-//struct Invoke {
-//    function: String,
-//    payload: Option<String>,
-//}
 
 #[derive(Parser, Debug)]
 struct Register {
@@ -85,19 +48,8 @@ struct PingScheduler {}
 enum Action {
     /// Login to Faasten
     Login,
-    /// Get the value of a database key
-    Get(Get),
-    /// Set the value of a database key from the provided value or standard in
-    Set(Set),
-    /// Delete a database key
-    Delete(Delete),
-    /// Put a "blob" from a local file
-    Put(Blob),
-    /// Download a "blob" to a local file
-    Fetch(Blob),
-    List(List),
-    /// TODO Invoke a gate
-    //Invoke(Invoke),
+    /// Invoke a gate
+    Invoke(Invoke),
     /// upload local image to a faasten
     Register(Register),
     /// ping gateway
@@ -180,150 +132,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 status(&mut stderr, &"Login", &"saved")?;
             }
         }
-        Action::Get(Get { key }) => {
+        Action::Invoke(Invoke { function, payload }) => {
             if let Ok(token) = check_credential(&server) {
-                let url =
-                    Url::parse_with_params(format!("{}/get", server).as_str(), &[("keys", &key)])?;
-                let result = client
-                    .get(url)
-                    .bearer_auth(&token)
-                    .send()?
-                    .json::<HashMap<String, Option<String>>>()?;
-                if let Some(value) = result.get(&key).unwrap_or(&None) {
-                    print!("{}", value);
-                    status(&mut stderr, &"Get", &"OK")?;
+                let url = Url::parse(format!("{}/faasten/invoke/{}", server, function).as_str())?;
+                let payload = if let Some(p) = payload {
+                    p
                 } else {
-                    status(&mut stderr, &"Get", &format!("\"{}\" not found", key))?;
-                }
-            } else {
-                status(&mut stderr, &"Get", &"you must first login")?;
-            }
-        }
-        Action::List(List { dir }) => {
-            if let Ok(token) = check_credential(&server) {
-                let url = Url::parse_with_params(
-                    format!("{}/read_dir", server).as_str(),
-                    &[("dir", &dir)],
-                )?;
-                let result = client
-                    .get(url)
-                    .bearer_auth(&token)
-                    .send()?
-                    .json::<Vec<String>>()?;
-                for entry in result.iter() {
-                    println!("{}", entry);
-                }
-                status(&mut stderr, &"List", &"OK")?;
-            } else {
-                status(&mut stderr, &"List", &"you must first login")?;
-            }
-        }
-        Action::Set(Set { key, value }) => {
-            if let Ok(token) = check_credential(&server) {
-                let url = Url::parse(format!("{}/put", server).as_str())?;
-                let value = value.unwrap_or_else(|| {
-                    let mut buf = Vec::new();
-                    stdin()
-                        .lock()
-                        .read_to_end(&mut buf)
-                        .expect("couldn't read from stdin");
-                    String::from_utf8_lossy(buf.as_ref()).into()
-                });
-                let form = Form::new().text(key, value).percent_encode_noop();
-                let result = client
+                    let mut buf = String::new();
+                    stdin().read_to_string(&mut buf)?;
+                    buf
+                };
+                let mut result = client
                     .post(url)
                     .bearer_auth(&token)
-                    .multipart(form)
+                    .header("content-type", "application/json")
+                    .body(payload)
                     .send()?;
                 if result.status().is_success() {
-                    status(&mut stderr, &"Set", &"OK")?;
+                    std::io::copy(&mut result, &mut stdout())?;
+                    status(&mut stderr, &"Invoke", &"OK")?;
                 } else {
-                    status(&mut stderr, &"Set", &format!("{}", result.status()))?;
+                    status(&mut stderr, &"Invoke", &format!("{}", result.status()))?;
+                    result.copy_to(&mut stdout())?;
                 }
             } else {
-                status(&mut stderr, &"Set", &"you must first login")?;
+                status(&mut stderr, &"Invoke", &"you must first login")?;
             }
         }
-        Action::Delete(Delete { key }) => {
-            if let Ok(token) = check_credential(&server) {
-                let url = Url::parse_with_params(
-                    format!("{}/delete", server).as_str(),
-                    &[("key", &key)],
-                )?;
-                let result = client.delete(url).bearer_auth(&token).send()?;
-                if result.status().is_success() {
-                    status(&mut stderr, &"Delete", &"OK")?;
-                } else {
-                    status(&mut stderr, &"Delete", &format!("{}", result.status()))?;
-                }
-            } else {
-                status(&mut stderr, &"Delete", &"you must first login")?;
-            }
-        }
-        Action::Put(Blob { key, file }) => {
-            if let Ok(token) = check_credential(&server) {
-                let url = Url::parse_with_params(
-                    format!("{}/put_blob", server).as_str(),
-                    &[("key", &key)],
-                )?;
-                let result = client
-                    .post(url)
-                    .bearer_auth(&token)
-                    .body(Body::from(File::open(file)?))
-                    .send()?;
-                if result.status().is_success() {
-                    status(&mut stderr, &"Put", &"OK")?;
-                } else {
-                    status(&mut stderr, &"Put", &format!("{}", result.status()))?;
-                }
-            } else {
-                status(&mut stderr, &"Put", &"you must first login")?;
-            }
-        }
-        Action::Fetch(Blob { key, file }) => {
-            if let Ok(token) = check_credential(&server) {
-                let url = Url::parse_with_params(
-                    format!("{}/get_blob", server).as_str(),
-                    &[("key", &key)],
-                )?;
-                let mut result = client.get(url).bearer_auth(&token).send()?;
-                if result.status().is_success() {
-                    std::io::copy(&mut result, &mut File::create(file)?)?;
-                    status(&mut stderr, &"Fetch", &"OK")?;
-                } else {
-                    status(&mut stderr, &"Fetch", &format!("{}", result.status()))?;
-                }
-            } else {
-                status(&mut stderr, &"Fetch", &"you must first login")?;
-            }
-        }
-        //Action::Invoke(Invoke { function, payload }) => {
-        //    if let Ok(token) = check_credential(&server) {
-        //        let url = Url::parse(format!("{}/invoke/{}", server, function).as_str())?;
-        //        let payload = if let Some(p) = payload {
-        //            p
-        //        } else {
-        //            let mut buf = String::new();
-        //            stdin().read_to_string(&mut buf)?;
-        //            buf
-        //        };
-        //        let mut result = client
-        //            .post(url)
-        //            .bearer_auth(&token)
-        //            .header("content-type", "application/json")
-        //            .body(payload)
-        //            .send()?;
-        //        if result.status().is_success() {
-        //            std::io::copy(&mut result, &mut stdout())?;
-        //            status(&mut stderr, &"Invoke", &"OK")?;
-        //        } else {
-        //            status(&mut stderr, &"Invoke", &format!("{}", result.status()))?;
-        //            result.copy_to(&mut stdout())?;
-        //        }
-        //    } else {
-        //        status(&mut stderr, &"Invoke", &"you must first login")?;
-        //    }
-        //}
         Action::Register(Register {
             local_path,
             policy,
