@@ -2,11 +2,11 @@ use core::fmt;
 use std::io::{stdin, stdout, BufRead, Read, Write};
 use std::time::Instant;
 
-use base64::engine::general_purpose;
-use base64::Engine;
+//use base64::engine::general_purpose;
+//use base64::Engine;
 use clap::{Parser, Subcommand};
 use reqwest::Url;
-use serde_derive::Deserialize;
+//use serde_derive::Deserialize;
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 use toml::Value;
 
@@ -52,23 +52,33 @@ struct ListFaceted {
 }
 
 #[derive(Parser, Debug)]
-struct CreateFile {
-    /// Path to the directory
+struct PutBlob {
+    /// Local path where the blob is at
+    local_path: String,
+    /// Path that the blob will be linked at
     path: String,
+    /// Label on the linked blob
     label: String,
 }
 
-#[derive(Parser, Debug)]
-struct WriteFile {
-    /// Path to the directory
-    path: String,
-}
-
-#[derive(Parser, Debug)]
-struct ReadFile {
-    /// Path to the directory
-    path: String,
-}
+//#[derive(Parser, Debug)]
+//struct CreateFile {
+//    /// Path to the directory
+//    path: String,
+//    label: String,
+//}
+//
+//#[derive(Parser, Debug)]
+//struct WriteFile {
+//    /// Path to the directory
+//    path: String,
+//}
+//
+//#[derive(Parser, Debug)]
+//struct ReadFile {
+//    /// Path to the directory
+//    path: String,
+//}
 
 #[derive(Parser, Debug)]
 struct Ping {}
@@ -92,12 +102,14 @@ enum Action {
     ListDir(ListDir),
     /// list a faceted directory
     ListFaceted(ListFaceted),
-    /// create a file
-    CreateFile(CreateFile),
-    /// write from stdin to a file
-    WriteFile(WriteFile),
-    /// read a file to stdout as raw bytes
-    ReadFile(ReadFile),
+    /// create a blob from a local path
+    PutBlob(PutBlob),
+    ///// create a file
+    //CreateFile(CreateFile),
+    ///// write from stdin to a file
+    //WriteFile(WriteFile),
+    ///// read a file to stdout as raw bytes
+    //ReadFile(ReadFile),
 }
 
 fn status(
@@ -204,14 +216,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Action::Ping(Ping {}) => {
             let now = Instant::now();
             let url = Url::parse(format!("{}/faasten/ping", server).as_str())?;
-            let _ = client.get(url).send()?;
-            println!("ping: {:?} elapsed", now.elapsed());
+            let result = client.get(url).send()?;
+            if result.status().is_success() {
+                println!("{:?} elapsed", now.elapsed());
+                status(&mut stderr, &"Ping", &"OK")?;
+            } else {
+                status(&mut stderr, &"Ping", &format!("{}", result.status()))?;
+            }
         }
         Action::PingScheduler(PingScheduler {}) => {
             let now = Instant::now();
             let url = Url::parse(format!("{}/faasten/ping/scheduler", server).as_str())?;
-            let _ = client.get(url).send()?;
-            println!("ping: {:?} elapsed", now.elapsed());
+            let result = client.get(url).send()?;
+            if result.status().is_success() {
+                println!("{:?} elapsed", now.elapsed());
+                status(&mut stderr, &"Ping-Scheduler", &"OK")?;
+            } else {
+                status(
+                    &mut stderr,
+                    &"Ping-Scheduler",
+                    &format!("{}", result.status()),
+                )?;
+            }
         }
         Action::Register(Register {
             local_path,
@@ -232,7 +258,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 "policy": policy,
                                 "memory": mem_in_mb,
                                 "runtime": runtime
-                            }
+                            },
+                            "disclassify-to": "T"
                         })
                         .to_string(),
                     )
@@ -312,16 +339,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 status(&mut stderr, &"ListFaceted", &"you must first log in.")?;
             }
         }
-        Action::CreateFile(CreateFile { path, label }) => {
+        Action::PutBlob(PutBlob {
+            local_path,
+            path,
+            label,
+        }) => {
             if let Ok(token) = check_credential(&server) {
                 let url = Url::parse(format!("{}/faasten/invoke/~:fsutil", server).as_str())?;
-                let mut result = client
-                    .post(url)
-                    .bearer_auth(&token)
-                    .header("content-type", "application/json")
-                    .body(
+                let form = reqwest::blocking::multipart::Form::new()
+                    .text(
+                        "payload",
                         serde_json::json!({
-                            "op": "create-file",
+                            "op": "create-blob",
                             "args": {
                                 "path": path,
                                 "label": label,
@@ -329,90 +358,126 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         })
                         .to_string(),
                     )
-                    .send()?;
-                if result.status().is_success() {
-                    std::io::copy(&mut result, &mut stdout())?;
-                    status(&mut stderr, &"CreateFile", &"OK")?;
-                } else {
-                    status(&mut stderr, &"CreateFile", &format!("{}", result.status()))?;
-                    result.copy_to(&mut stdout())?;
-                }
-            } else {
-                status(&mut stderr, &"CreateFile", &"you must first log in.")?;
-            }
-        }
-        Action::WriteFile(WriteFile { path }) => {
-            if let Ok(token) = check_credential(&server) {
-                let url = Url::parse(format!("{}/faasten/invoke/~:fsutil", server).as_str())?;
-                let mut stdin = std::io::stdin();
-                let buf = &mut vec![];
-                stdin.read_to_end(buf).expect("read stdin");
-
-                let encoded = general_purpose::STANDARD.encode(buf);
-
+                    // the actual label is lub(label, lub({labels of path components}))
+                    // this request is constrained by a clearance = login,login.
+                    .text("label", "T,T")
+                    .file("file", local_path)?;
                 let mut result = client
                     .post(url)
                     .bearer_auth(&token)
-                    .header("content-type", "application/json")
-                    .body(
-                        serde_json::json!({
-                            "op": "write-file",
-                            "args": {
-                                "path": path,
-                                "data": encoded,
-                            }
-                        })
-                        .to_string(),
-                    )
+                    .multipart(form)
                     .send()?;
                 if result.status().is_success() {
                     std::io::copy(&mut result, &mut stdout())?;
-                    status(&mut stderr, &"WriteFile", &"OK")?;
+                    status(&mut stderr, &"PutBlob", &"OK")?;
                 } else {
-                    status(&mut stderr, &"WriteFile", &format!("{}", result.status()))?;
+                    status(&mut stderr, &"PutBlob", &format!("{}", result.status()))?;
                     result.copy_to(&mut stdout())?;
                 }
             } else {
-                status(&mut stderr, &"WriteFile", &"you must first log in.")?;
+                status(&mut stderr, &"PutBlob", &"you must first log in.")?;
             }
-        }
-        Action::ReadFile(ReadFile { path }) => {
-            if let Ok(token) = check_credential(&server) {
-                let url = Url::parse(format!("{}/faasten/invoke/~:fsutil", server).as_str())?;
+        } //Action::CreateFile(CreateFile { path, label }) => {
+          //    if let Ok(token) = check_credential(&server) {
+          //        let url = Url::parse(format!("{}/faasten/invoke/~:fsutil", server).as_str())?;
+          //        let mut result = client
+          //            .post(url)
+          //            .bearer_auth(&token)
+          //            .header("content-type", "application/json")
+          //            .body(
+          //                serde_json::json!({
+          //                    "op": "create-file",
+          //                    "args": {
+          //                        "path": path,
+          //                        "label": label,
+          //                    }
+          //                })
+          //                .to_string(),
+          //            )
+          //            .send()?;
+          //        if result.status().is_success() {
+          //            std::io::copy(&mut result, &mut stdout())?;
+          //            status(&mut stderr, &"CreateFile", &"OK")?;
+          //        } else {
+          //            status(&mut stderr, &"CreateFile", &format!("{}", result.status()))?;
+          //            result.copy_to(&mut stdout())?;
+          //        }
+          //    } else {
+          //        status(&mut stderr, &"CreateFile", &"you must first log in.")?;
+          //    }
+          //}
+          //Action::WriteFile(WriteFile { path }) => {
+          //    if let Ok(token) = check_credential(&server) {
+          //        let url = Url::parse(format!("{}/faasten/invoke/~:fsutil", server).as_str())?;
+          //        let mut stdin = std::io::stdin();
+          //        let buf = &mut vec![];
+          //        stdin.read_to_end(buf).expect("read stdin");
 
-                let mut result = client
-                    .post(url)
-                    .bearer_auth(&token)
-                    .header("content-type", "application/json")
-                    .body(
-                        serde_json::json!({
-                            "op": "read-file",
-                            "args": {
-                                "path": path,
-                            }
-                        })
-                        .to_string(),
-                    )
-                    .send()?;
-                if result.status().is_success() {
-                    #[derive(Deserialize)]
-                    struct ReadRet {
-                        #[allow(dead_code)]
-                        success: bool,
-                        value: String,
-                    }
-                    let ret: ReadRet = result.json().unwrap();
-                    let mut decoded = general_purpose::STANDARD.decode(ret.value).unwrap();
-                    stdout().write_all(decoded.as_mut())?;
-                    status(&mut stderr, &"ReadFile", &"OK")?;
-                } else {
-                    status(&mut stderr, &"ReadFile", &format!("{}", result.status()))?;
-                    result.copy_to(&mut stdout())?;
-                }
-            } else {
-                status(&mut stderr, &"ReadFile", &"you must first log in.")?;
-            }
-        }
+          //        let encoded = general_purpose::STANDARD.encode(buf);
+
+          //        let mut result = client
+          //            .post(url)
+          //            .bearer_auth(&token)
+          //            .header("content-type", "application/json")
+          //            .body(
+          //                serde_json::json!({
+          //                    "op": "write-file",
+          //                    "args": {
+          //                        "path": path,
+          //                        "data": encoded,
+          //                    }
+          //                })
+          //                .to_string(),
+          //            )
+          //            .send()?;
+          //        if result.status().is_success() {
+          //            std::io::copy(&mut result, &mut stdout())?;
+          //            status(&mut stderr, &"WriteFile", &"OK")?;
+          //        } else {
+          //            status(&mut stderr, &"WriteFile", &format!("{}", result.status()))?;
+          //            result.copy_to(&mut stdout())?;
+          //        }
+          //    } else {
+          //        status(&mut stderr, &"WriteFile", &"you must first log in.")?;
+          //    }
+          //}
+          //Action::ReadFile(ReadFile { path }) => {
+          //    if let Ok(token) = check_credential(&server) {
+          //        let url = Url::parse(format!("{}/faasten/invoke/~:fsutil", server).as_str())?;
+
+          //        let mut result = client
+          //            .post(url)
+          //            .bearer_auth(&token)
+          //            .header("content-type", "application/json")
+          //            .body(
+          //                serde_json::json!({
+          //                    "op": "read-file",
+          //                    "args": {
+          //                        "path": path,
+          //                    }
+          //                })
+          //                .to_string(),
+          //            )
+          //            .send()?;
+          //        if result.status().is_success() {
+          //            #[derive(Deserialize)]
+          //            struct ReadRet {
+          //                #[allow(dead_code)]
+          //                success: bool,
+          //                value: String,
+          //            }
+          //            let ret: ReadRet = result.json().unwrap();
+          //            let mut decoded = general_purpose::STANDARD.decode(ret.value).unwrap();
+          //            stdout().write_all(decoded.as_mut())?;
+          //            status(&mut stderr, &"ReadFile", &"OK")?;
+          //        } else {
+          //            status(&mut stderr, &"ReadFile", &format!("{}", result.status()))?;
+          //            result.copy_to(&mut stdout())?;
+          //        }
+          //    } else {
+          //        status(&mut stderr, &"ReadFile", &"you must first log in.")?;
+          //    }
+          //}
     }
     Ok(())
 }
