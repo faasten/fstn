@@ -1,4 +1,5 @@
 use core::fmt;
+use std::collections::HashMap;
 use std::time::Instant;
 use std:: io::{stdin, stdout, BufRead, Read, Write};
 
@@ -68,6 +69,19 @@ struct MkBlobArgs {
     files: Vec<String>,
 }
 
+#[derive(Parser, Debug)]
+struct InvokeArgs {
+    #[clap(value_parser)]
+    path: String,
+    #[clap(value_parser = param_valid)]
+    params: Vec<(String, String)>,
+}
+
+fn param_valid(s: &str) -> Result<(String, String), String> {
+    let (k, v) = s.split_once("=").ok_or("argument must be of the form key=value".to_string())?;
+    Ok((k.to_string(), v.to_string()))
+}
+
 #[derive(Subcommand, Debug)]
 enum FsOp {
     Ping,
@@ -82,7 +96,7 @@ enum FsOp {
     Cat(OneArg),
     Mkfaceted,
     Mksvc(TwoArgsLabel),
-    Invoke(OneArg),
+    Invoke(InvokeArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -456,14 +470,15 @@ impl<O: Write> Fstn<O> {
                         mksvc.name = Some(name);
                         mksvc.label = label;
 
-                        println!("{:?}", mksvc);
                         let payload = serde_json::json!({"op": "mksvc", "args": mksvc});
                         self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
 
                     },
-                    FsOp::Invoke(OneArg { arg: path }) => {
+                    FsOp::Invoke(InvokeArgs { path, params }) => {
                         let mut data = Vec::new();
                         stdin().read_to_end(&mut data)?;
+
+                        let params = params.iter().map(Clone::clone).collect();
 
                         #[serde_as]
                         #[derive(Serialize)]
@@ -471,13 +486,15 @@ impl<O: Write> Fstn<O> {
                             path: Vec<&'a str>,
                             sync: bool,
                             #[serde_as(as="Base64")]
-                            payload: Vec<u8>
+                            payload: Vec<u8>,
+                            params: HashMap<String, String>
                         }
 
                         let payload = serde_json::json!({"op": "invoke", "args": InvokeArgs {
                             path: path.split(":").collect::<Vec<&str>>(),
                             sync: true,
                             payload: data,
+                            params,
                         }});
                         self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
                     }
