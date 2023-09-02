@@ -1,8 +1,10 @@
 use core::fmt;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Instant;
 use std:: io::{stdin, stdout, BufRead, Read, Write};
 
+use backhand::NodeHeader;
 use clap::{Parser, Subcommand};
 use reqwest::Url;
 use reqwest::blocking::Response;
@@ -20,6 +22,8 @@ struct Cli {
     command: Action,
     #[clap(short, long, value_parser)]
     server: Option<String>,
+    #[clap(short, long, value_parser)]
+    user: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -33,6 +37,13 @@ struct Invoke {
 struct Delegate {
     #[clap(value_parser)]
     privilege: String,
+    #[clap(short, long, value_parser)]
+    save: bool,
+    #[clap(short, long, value_parser)]
+    bootstrap: bool,
+    #[clap(short, long, value_parser)]
+    #[arg(requires="bootstrap")]
+    clearance: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -70,6 +81,72 @@ struct MkBlobArgs {
 }
 
 #[derive(Parser, Debug)]
+struct MkGateArgs {
+    #[clap(short, long, value_parser)]
+    label: String,
+    #[clap(short, long, value_parser)]
+    privilege: String,
+    #[clap(short, long, value_parser)]
+    clearance: String,
+    #[clap(short, long, value_parser)]
+    #[arg(requires="app_image")]
+    #[arg(requires="kernel")]
+    #[arg(requires="runtime")]
+    #[arg(conflicts_with="gate")]
+    memory: Option<u64>,
+    #[clap(short, long, value_parser)]
+    app_image: Option<String>,
+    #[clap(short, long, value_parser)]
+    kernel: Option<String>,
+    #[clap(short, long, value_parser)]
+    runtime: Option<String>,
+    #[clap(short, long, value_parser)]
+    #[arg(conflicts_with="memory")]
+    #[arg(conflicts_with="app_image")]
+    #[arg(conflicts_with="kernel")]
+    #[arg(conflicts_with="runtime")]
+    gate: Option<String>,
+    base: String,
+    name: String,
+}
+
+#[derive(Parser, Debug)]
+struct UpgateArgs {
+    #[clap(short, long, value_parser)]
+    privilege: Option<String>,
+    #[clap(short, long, value_parser)]
+    clearance: Option<String>,
+    #[clap(short, long, value_parser)]
+    #[arg(conflicts_with="gate")]
+    memory: Option<u64>,
+    #[clap(short, long, value_parser)]
+    app_image: Option<String>,
+    #[clap(short, long, value_parser)]
+    kernel: Option<String>,
+    #[clap(short, long, value_parser)]
+    runtime: Option<String>,
+    #[clap(short, long, value_parser)]
+    #[arg(conflicts_with="memory")]
+    #[arg(conflicts_with="app_image")]
+    #[arg(conflicts_with="kernel")]
+    #[arg(conflicts_with="runtime")]
+    gate: Option<String>,
+    path: String,
+}
+
+#[derive(Parser, Debug)]
+struct MkGateArgsDirect {
+    #[clap(short, long, value_parser)]
+    memory: Option<u64>,
+    #[clap(short, long, value_parser)]
+    app_image: Option<String>,
+    #[clap(short, long, value_parser)]
+    kernel: Option<String>,
+    #[clap(short, long, value_parser)]
+    runtime: Option<String>,
+}
+
+#[derive(Parser, Debug)]
 struct InvokeArgs {
     #[clap(value_parser)]
     path: String,
@@ -87,11 +164,12 @@ enum FsOp {
     Ping,
     Ls(OneArg),
     Unlink(TwoArgs),
+    Mkdir(TwoArgsLabel),
     Mkfile(TwoArgsLabel),
     Write(OneArg),
     Read(OneArg),
-    Mkgate,
-    Upgate,
+    Mkgate(MkGateArgs),
+    Upgate(UpgateArgs),
     Mkblob(MkBlobArgs),
     Cat(OneArg),
     Mkfaceted,
@@ -104,21 +182,7 @@ struct FS {
     #[clap(subcommand)]
     op: FsOp,
     #[clap(short, long, value_parser)]
-    user: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-struct Register {
-    /// Path to the local image
-    local_path: String,
-    /// Ignored if not logged in
-    policy: String,
-    /// Path to the gate
-    remote_path: String,
-    /// VM memory size
-    mem_in_mb: usize,
-    /// runtime: python
-    runtime: String,
+    masquerade: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -126,6 +190,13 @@ struct Ping {}
 
 #[derive(Parser, Debug)]
 struct PingScheduler {}
+
+#[derive(Parser, Debug)]
+struct Build {
+    source_dir: PathBuf,
+    #[clap(short, long, value_parser)]
+    output: Option<PathBuf>,
+}
 
 #[derive(Subcommand, Debug)]
 enum Action {
@@ -140,11 +211,12 @@ enum Action {
     /// upload local image to a faasten
     /// File system operaions
     FS(FS),
-    Register(Register),
     /// ping gateway
     Ping(Ping),
     /// ping scheduler via gateway
     PingScheduler(PingScheduler),
+    /// Build Faasten image from a source directory
+    Build(Build),
 }
 
 fn status(
@@ -178,30 +250,8 @@ fn get_default_server() -> Option<String> {
     }
 }
 
-fn check_credential(server: &String) -> Result<String, std::io::Error> {
-    let config_dir = dirs::config_dir()
-        .unwrap_or("~/.config".into())
-        .join("fstn");
-    std::fs::create_dir_all(&config_dir)?;
-    let credentials_file = config_dir.join("credentials");
-    let creds: Value = toml::from_slice(&std::fs::read(credentials_file)?)?;
-    if let Some(token) = creds
-        .get(server)
-        .and_then(|v| v.get("token"))
-        .and_then(Value::as_str)
-    {
-        Ok(String::from(token))
-    } else if let Some(token) = creds.get("token").and_then(Value::as_str) {
-        Ok(String::from(token))
-    } else {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "no token found",
-        ))
-    }
-}
-
 const DEFAULT_SERVER: &'static str = "https://faasten.princeton.systems";
+const DEFAULT_USER: &'static str = "default";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
@@ -210,11 +260,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or(std::env::var("FSTN_SERVER").ok())
         .or(get_default_server())
         .unwrap_or(String::from(DEFAULT_SERVER));
+
+    let user = cli
+        .user
+        .or(std::env::var("FSTN_USER").ok())
+        .unwrap_or(String::from(DEFAULT_USER));
     Fstn {
         stdout: stdout(),
         stderr: StandardStream::stderr(termcolor::ColorChoice::Auto),
-        client: reqwest::blocking::Client::new(),
+        client: reqwest::blocking::ClientBuilder::new().timeout(None).build()?,
         server,
+        user,
 
     }.run(cli.command)
 }
@@ -224,6 +280,7 @@ struct Fstn<O: Write> {
     stderr: StandardStream,
     client: reqwest::blocking::Client,
     server: String,
+    user: String,
 }
 
 #[derive(Debug)]
@@ -240,8 +297,59 @@ impl std::error::Error for EarlyExit {
 }
 
 impl<O: Write> Fstn<O> {
+    fn check_credential(&self) -> Result<String, std::io::Error> {
+        let config_dir = dirs::config_dir()
+            .unwrap_or("~/.config".into())
+            .join("fstn");
+        std::fs::create_dir_all(&config_dir)?;
+        let credentials_file = config_dir.join("credentials");
+        let creds: Value = toml::from_slice(&std::fs::read(credentials_file)?)?;
+        if let Some(token) = creds
+            .get(&self.server)
+            .and_then(|v| v.get(&self.user))
+            .and_then(Value::as_str)
+        {
+            Ok(String::from(token))
+        } else if let Some(token) = creds.get(&self.user).and_then(Value::as_str) {
+            Ok(String::from(token))
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "no token found",
+            ))
+        }
+    }
+
+    fn save_credential(&self, user: String, token: String) -> Result<(), Box<dyn std::error::Error>> {
+        let config_dir = dirs::config_dir()
+            .unwrap_or("~/.config".into())
+            .join("fstn");
+        std::fs::create_dir_all(&config_dir)?;
+        let credentials_file = config_dir.join("credentials");
+        let mut credentials: Value = if credentials_file.exists() {
+            toml::from_slice(&std::fs::read(&credentials_file)?)?
+        } else {
+            Value::Table(Default::default())
+        };
+        credentials.as_table_mut().and_then(|t| {
+            if let Some(server_table) = t.get_mut(&self.server) {
+                server_table.as_table_mut().and_then(|b| b.insert(user, Value::String(token)))
+            } else {
+                t.insert(
+                    self.server.clone(),
+                    Value::Table(toml::map::Map::from_iter([(
+                        user,
+                        Value::String(token),
+                    )])),
+                )
+            }
+        });
+        std::fs::write(credentials_file, toml::to_string(&credentials)?)?;
+        Ok(())
+    }
+
     fn token(&mut self, command: &str) -> Result<String, Box<dyn std::error::Error>>{
-        if let Ok(token) = check_credential(&self.server) {
+        if let Ok(token) = self.check_credential() {
             Ok(token)
         } else {
             status(&mut self.stderr, &command, &"you must first login")?;
@@ -276,26 +384,7 @@ impl<O: Write> Fstn<O> {
                     self.server
                 )?;
                 if let Some(Ok(token)) = stdin().lock().lines().next() {
-                    let config_dir = dirs::config_dir()
-                        .unwrap_or("~/.config".into())
-                        .join("fstn");
-                    std::fs::create_dir_all(&config_dir)?;
-                    let credentials_file = config_dir.join("credentials");
-                    let mut credentials: Value = if credentials_file.exists() {
-                        toml::from_slice(&std::fs::read(&credentials_file)?)?
-                    } else {
-                        Value::Table(Default::default())
-                    };
-                    credentials.as_table_mut().and_then(|t| {
-                        t.insert(
-                            self.server.clone(),
-                            Value::Table(toml::map::Map::from_iter([(
-                                String::from("token"),
-                                Value::String(token),
-                            )])),
-                        )
-                    });
-                    std::fs::write(credentials_file, toml::to_string(&credentials)?)?;
+                    self.save_credential(self.user.clone(), token)?;
                     status(&mut self.stderr, &"Login", &"saved")?;
                 }
             }
@@ -325,9 +414,12 @@ impl<O: Write> Fstn<O> {
                 };
                 self.invoke(function, payload)?.copy_to(&mut stdout())?;
             },
-            Action::FS(FS { op, user }) => {
-                let user = user.map(|u| format!("home:<T,{u}>")).unwrap_or("~".to_string());
-                let function = format!("{}:fsutil", user);
+            Action::FS(FS { op, masquerade }) => {
+                let function = if let Some(user) = masquerade {
+                    format!("home:<{},{}>:fsutil", user, user)
+                } else {
+                    "~:fsutil".into()
+                };
                 match op {
                     FsOp::Ping => {
                         let start = std::time::SystemTime::now();
@@ -347,11 +439,19 @@ impl<O: Write> Fstn<O> {
                         }});
                         self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
                     },
+                    FsOp::Mkdir(TwoArgsLabel { label, arg1: base, arg2: name }) => {
+                        let payload = serde_json::json!({"op": "mkdir", "args": {
+                            "base": base.split(":").collect::<Vec<&str>>(),
+                            "name": name,
+                            "label": label.unwrap_or("T,T".into()),
+                        }});
+                        self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
+                    },
                     FsOp::Mkfile(TwoArgsLabel { label, arg1: base, arg2: name }) => {
                         let payload = serde_json::json!({"op": "mkfile", "args": {
                             "base": base.split(":").collect::<Vec<&str>>(),
                             "name": name,
-                            "label": label,
+                            "label": label.unwrap_or("T,T".into()),
                         }});
                         self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
                     },
@@ -394,8 +494,168 @@ impl<O: Write> Fstn<O> {
                             Err(EarlyExit)?;
                         }
                     }
-                    FsOp::Mkgate => todo!(),
-                    FsOp::Upgate => todo!(),
+                    FsOp::Mkgate(MkGateArgs { label, privilege, clearance, base, name, memory, kernel, runtime, gate, app_image }) => {
+
+                        #[derive(Debug, Serialize, Deserialize)]
+                        struct MkgateArgs {
+                            label: String,
+                            privilege: String,
+                            clearance: String,
+                            base: Vec<String>,
+                            name: String,
+                            memory: Option<u64>,
+                            app_image: Option<Vec<String>>,
+                            kernel: Option<Vec<String>>,
+                            runtime: Option<Vec<String>>,
+                            gate: Option<Vec<String>>,
+                        }
+
+                        let mut args = MkgateArgs {
+                            label,
+                            privilege,
+                            clearance,
+                            base: base.split(":").map(ToString::to_string).collect(),
+                            name,
+                            memory,
+                            app_image: None,
+                            kernel: None,
+                            runtime: None,
+                            gate: gate.map(|g| g.split(":").map(ToString::to_string).collect()),
+                        };
+
+                        let mut form = reqwest::blocking::multipart::Form::new();
+
+                        if let Some(app_image) = app_image {
+                            if let Some(local_app) = app_image.strip_prefix("@") {
+                                form = form.part("blob", reqwest::blocking::multipart::Part::file(local_app)?
+                                                    .mime_str("application/octet-stream")?
+                                                    .file_name("app_image"));
+                            } else {
+                                args.app_image = Some(app_image.split(":").map(ToString::to_string).collect());
+                            }
+                        }
+
+                        if let Some(kernel) = kernel {
+                            if let Some(local_kernel) = kernel.strip_prefix("@") {
+                                form = form.part("blob", reqwest::blocking::multipart::Part::file(local_kernel)?
+                                                    .mime_str("application/octet-stream")?
+                                                    .file_name("kernel"));
+                            } else {
+                                args.kernel = Some(kernel.split(":").map(ToString::to_string).collect());
+                            }
+                        }
+
+                        if let Some(runtime) = runtime {
+                            if let Some(local_runtime) = runtime.strip_prefix("@") {
+                                form = form.part("blob", reqwest::blocking::multipart::Part::file(local_runtime)?
+                                                    .mime_str("application/octet-stream")?
+                                                    .file_name("runtime"));
+                            } else {
+                                args.runtime = Some(runtime.split(":").map(ToString::to_string).collect());
+                            }
+                        }
+
+                        let payload = serde_json::json!({
+                            "op": "mkgate",
+                            "args": args,
+                        });
+
+                        form = form.text("payload", serde_json::to_string(&payload)?);
+                        let token = self.token("invoke")?;
+                        let mut url = Url::parse(format!("{}/faasten/invoke", self.server).as_str())?;
+                        url.path_segments_mut().map_err(|_| "cannot be base")?.push(&function);
+                        let mut result = self.client
+                            .post(url)
+                            .bearer_auth(&token)
+                            .multipart(form)
+                            .send()?;
+                        if result.status().is_success() {
+                            status(&mut self.stderr, &"Invoke", &"OK")?;
+                            result.copy_to(&mut self.stdout)?;
+                        } else {
+                            status(&mut self.stderr, &"Invoke", &format!("{}", result.status()))?;
+                            result.copy_to(&mut self.stderr)?;
+                        }
+                    },
+                    FsOp::Upgate(UpgateArgs { privilege, clearance, memory, app_image, kernel, runtime, gate, path }) => {
+                        #[derive(Debug, Serialize, Deserialize)]
+                        struct UpgatePayload {
+                            privilege: Option<String>,
+                            clearance: Option<String>,
+                            memory: Option<u64>,
+                            app_image: Option<Vec<String>>,
+                            kernel: Option<Vec<String>>,
+                            runtime: Option<Vec<String>>,
+                            gate: Option<Vec<String>>,
+                            path: Vec<String>,
+                        }
+
+                        let mut args = UpgatePayload {
+                            privilege,
+                            clearance,
+                            memory,
+                            app_image: None,
+                            kernel: None,
+                            runtime: None,
+                            gate: gate.map(|g| g.split(":").map(ToString::to_string).collect()),
+                            path: path.split(":").map(ToString::to_string).collect(),
+                        };
+
+
+                        let mut form = reqwest::blocking::multipart::Form::new();
+
+                        if let Some(app_image) = app_image {
+                            if let Some(local_app) = app_image.strip_prefix("@") {
+                                form = form.part("blob", reqwest::blocking::multipart::Part::file(local_app)?
+                                                    .mime_str("application/octet-stream")?
+                                                    .file_name("app_image"));
+                            } else {
+                                args.app_image = Some(app_image.split(":").map(ToString::to_string).collect());
+                            }
+                        }
+
+                        if let Some(kernel) = kernel {
+                            if let Some(local_kernel) = kernel.strip_prefix("@") {
+                                form = form.part("blob", reqwest::blocking::multipart::Part::file(local_kernel)?
+                                                    .mime_str("application/octet-stream")?
+                                                    .file_name("kernel"));
+                            } else {
+                                args.kernel = Some(kernel.split(":").map(ToString::to_string).collect());
+                            }
+                        }
+
+                        if let Some(runtime) = runtime {
+                            if let Some(local_runtime) = runtime.strip_prefix("@") {
+                                form = form.part("blob", reqwest::blocking::multipart::Part::file(local_runtime)?
+                                                    .mime_str("application/octet-stream")?
+                                                    .file_name("runtime"));
+                            } else {
+                                args.runtime = Some(runtime.split(":").map(ToString::to_string).collect());
+                            }
+                        }
+
+                        let payload = serde_json::json!({
+                            "op": "upgate",
+                            "args": args,
+                        });
+
+                        form = form.text("payload", serde_json::to_string(&payload)?);
+                        let token = self.token("invoke")?;
+                        let mut url = Url::parse(format!("{}/faasten/invoke", self.server).as_str())?;
+                        url.path_segments_mut().map_err(|_| "cannot be base")?.push(&function);
+                        let mut result = self.client
+                            .post(url)
+                            .bearer_auth(&token)
+                            .multipart(form)
+                            .send()?;
+                        if result.status().is_success() {
+                            status(&mut self.stderr, &"Invoke", &"OK")?;
+                            result.copy_to(&mut self.stdout)?;
+                        } else {
+                            status(&mut self.stderr, &"Invoke", &format!("{}", result.status()))?;
+                            result.copy_to(&mut self.stderr)?;
+                        }
+                    },
                     FsOp::Mkblob(MkBlobArgs { label, base, files }) => {
                         let payload = serde_json::json!({
                             "op": "mkblob",
@@ -490,28 +750,53 @@ impl<O: Write> Fstn<O> {
                             params: HashMap<String, String>
                         }
 
+                        #[serde_as]
+                        #[derive(Deserialize)]
+                        struct InvokeResult {
+                            #[allow(dead_code)]
+                            success: Option<bool>,
+                            #[serde_as(as="Base64")]
+                            #[serde(default)]
+                            data: Option<Vec<u8>>,
+                            error: Option<serde_json::Value>,
+                        }
+
                         let payload = serde_json::json!({"op": "invoke", "args": InvokeArgs {
                             path: path.split(":").collect::<Vec<&str>>(),
                             sync: true,
                             payload: data,
                             params,
                         }});
-                        self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
+                        let result: InvokeResult = self.invoke(function, serde_json::to_string(&payload)?)?.json()?;
+                        if let Some(data) = result.data {
+                            self.stdout.write_all(&data)?;
+                        } else {
+                            self.stderr.write_all(&serde_json::to_vec(&result.error)?)?;
+                        }
                     }
                 };
             },
-            Action::Delegate(delegate) => {
-                if let Ok(token) = check_credential(&self.server) {
+            Action::Delegate(Delegate { save, privilege, bootstrap, clearance }) => {
+                if let Ok(token) = self.check_credential() {
                     let url = Url::parse(format!("{}/faasten/delegate", self.server).as_str())?;
                     let mut result = self.client
                         .post(url)
                         .bearer_auth(&token)
                         .header("content-type", "application/json")
-                        .json(&serde_json::json!({"p": delegate.privilege}))
+                        .json(&serde_json::json!({
+                            "component": privilege,
+                            "bootstrap": bootstrap,
+                            "clearance": clearance,
+                        }))
                         .send()?;
                     if result.status().is_success() {
-                        std::io::copy(&mut result, &mut stdout())?;
-                        status(&mut self.stderr, &"Invoke", &"OK")?;
+                        let mut token = String::new();
+                        result.read_to_string(&mut token)?;
+                        self.stdout.write_all(token.as_bytes())?;
+                        if save {
+                            self.save_credential(privilege, token)?;
+                        }
+                        status(&mut self.stderr, &"Delegate", &"OK")?;
                     } else {
                         status(&mut self.stderr, &"Delegate", &format!("{}", result.status()))?;
                         result.copy_to(&mut stdout())?;
@@ -519,51 +804,7 @@ impl<O: Write> Fstn<O> {
                 } else {
                     status(&mut self.stderr, &"Delegate", &"you must first login")?;
                 }
-            }
-            Action::Register(Register {
-                local_path,
-                policy,
-                remote_path,
-                mem_in_mb,
-                runtime,
-            }) => {
-                if let Ok(token) = check_credential(&self.server) {
-                    let url = Url::parse(format!("{}/faasten/invoke/~:fsutil", self.server).as_str())?;
-                    write!(self.stdout, "{:?}", url)?;
-                    let form = reqwest::blocking::multipart::Form::new()
-                        .text(
-                            "payload",
-                            serde_json::json!({
-                                "op": "create-gate",
-                                "args": {
-                                    "path": remote_path,
-                                    "policy": policy,
-                                    "memory": mem_in_mb,
-                                    "runtime": runtime
-                                }
-                            })
-                            .to_string(),
-                        )
-                        // the actual label is lub(label, lub({labels of path components}))
-                        // this request is constrained by a clearance = login,login.
-                        .text("label", "T,T")
-                        .file("file", local_path)?;
-                    let mut result = self.client
-                        .post(url)
-                        .bearer_auth(&token)
-                        .multipart(form)
-                        .send()?;
-                    if result.status().is_success() {
-                        std::io::copy(&mut result, &mut stdout())?;
-                        status(&mut self.stderr, &"Register", &"OK")?;
-                    } else {
-                        status(&mut self.stderr, &"Register", &format!("{}", result.status()))?;
-                        result.copy_to(&mut stdout())?;
-                    }
-                } else {
-                    status(&mut self.stderr, &"Register", &"you must first login")?;
-                }
-            }
+            },
             Action::Ping(Ping {}) => {
                 let now = Instant::now();
                 let url = Url::parse(format!("{}/faasten/ping", self.server).as_str())?;
@@ -575,6 +816,34 @@ impl<O: Write> Fstn<O> {
                 let url = Url::parse(format!("{}/faasten/ping/scheduler", self.server).as_str())?;
                 let _ = self.client.get(url).send()?;
                 write!(self.stdout, "ping: {:?} elapsed", now.elapsed())?;
+            },
+            Action::Build(Build { source_dir, output }) => {
+                use std::os::unix::fs::PermissionsExt;
+                let mut output = std::fs::File::create(output.unwrap_or("function.img".into()))?;
+                let mut fswriter = backhand::FilesystemWriter::default();
+                fswriter.set_root_mode(0o555);
+
+                fn write_dir(fs: &mut backhand::FilesystemWriter, path: PathBuf, prefix: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+                    for entry in std::fs::read_dir(path)? {
+                        let entry = entry?;
+                        let meta = entry.metadata()?;
+                        let permissions = entry.metadata()?.permissions().mode();
+                        if meta.is_file() {
+                            fs.push_file(std::fs::File::open(entry.path()).unwrap(),
+                                            prefix.join(entry.file_name()),
+                                            NodeHeader::new(permissions as u16, 0, 0, 0)).unwrap();
+                        } else if meta.is_dir() {
+                            let next_prefix = prefix.join(entry.file_name());
+                            fs.push_dir(next_prefix.clone(), NodeHeader::new(permissions as u16, 0, 0, 0))?;
+                            write_dir(fs, entry.path(), next_prefix)?;
+                        }
+                    }
+                    Ok(())
+                }
+
+                write_dir(&mut fswriter, source_dir, "/".into())?;
+
+                fswriter.write(&mut output)?;
             }
         }
         Ok(())

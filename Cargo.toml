@@ -10,7 +10,7 @@ license-file = "LICENSE.txt"
 
 [dependencies]
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "multipart"] }
-clap = { version = "3.2", features = ["derive"]}
+clap = { version = "4.3.24", features = ["derive"]}
 dirs = "4"
 toml = "0.5"
 serde = "1"
@@ -19,3 +19,4 @@ serde_with = { version = "1", features = [ "base64" ] }
 serde_json = "1"
 serde_repr = "0.1"
 termcolor = "1"
+backhand = "0.12"
