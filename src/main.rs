@@ -55,9 +55,9 @@ struct OneArg {
 #[derive(Parser, Debug)]
 struct TwoArgs {
     #[clap(value_parser)]
-    arg1: String,
+    base: String,
     #[clap(value_parser)]
-    arg2: String,
+    name: String,
 }
 
 #[derive(Parser, Debug)]
@@ -65,9 +65,9 @@ struct TwoArgsLabel {
     #[clap(short, long, value_parser)]
     label: Option<String>,
     #[clap(value_parser)]
-    arg1: String,
+    base: String,
     #[clap(value_parser)]
-    arg2: String,
+    name: String,
 }
 
 #[derive(Parser, Debug)]
@@ -172,7 +172,7 @@ enum FsOp {
     Upgate(UpgateArgs),
     Mkblob(MkBlobArgs),
     Cat(OneArg),
-    Mkfaceted,
+    Mkfaceted(TwoArgs),
     Mksvc(TwoArgsLabel),
     Invoke(InvokeArgs),
 }
@@ -432,14 +432,14 @@ impl<O: Write> Fstn<O> {
                         let payload = serde_json::json!({"op": "ls", "args": { "path": path.split(":").collect::<Vec<&str>>() }});
                         self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
                     },
-                    FsOp::Unlink(TwoArgs { arg1: base, arg2: name }) => {
+                    FsOp::Unlink(TwoArgs { base, name }) => {
                         let payload = serde_json::json!({"op": "unlink", "args": {
                             "base": base.split(":").collect::<Vec<&str>>(),
                             "name": name,
                         }});
                         self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
                     },
-                    FsOp::Mkdir(TwoArgsLabel { label, arg1: base, arg2: name }) => {
+                    FsOp::Mkdir(TwoArgsLabel { label, base, name }) => {
                         let payload = serde_json::json!({"op": "mkdir", "args": {
                             "base": base.split(":").collect::<Vec<&str>>(),
                             "name": name,
@@ -447,7 +447,7 @@ impl<O: Write> Fstn<O> {
                         }});
                         self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
                     },
-                    FsOp::Mkfile(TwoArgsLabel { label, arg1: base, arg2: name }) => {
+                    FsOp::Mkfile(TwoArgsLabel { label, base, name }) => {
                         let payload = serde_json::json!({"op": "mkfile", "args": {
                             "base": base.split(":").collect::<Vec<&str>>(),
                             "name": name,
@@ -698,8 +698,14 @@ impl<O: Write> Fstn<O> {
                         }});
                         self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
                     }
-                    FsOp::Mkfaceted => todo!(),
-                    FsOp::Mksvc(TwoArgsLabel { arg1: base, arg2: name, label }) => {
+                    FsOp::Mkfaceted(TwoArgs { base, name }) => {
+                        let payload = serde_json::json!({"op": "mkfaceted", "args": {
+                            "base": base.split(":").collect::<Vec<&str>>(),
+                            "name": name,
+                        }});
+                        self.invoke(function, serde_json::to_string(&payload)?)?.copy_to(&mut self.stdout)?;
+                    },
+                    FsOp::Mksvc(TwoArgsLabel { base, name, label }) => {
                         #[derive(Serialize_repr, Deserialize, PartialEq, Debug)]
                         #[repr(u8)]
                         enum Verb {
