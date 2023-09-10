@@ -2,13 +2,14 @@ on:
   release:
     types: [created]
   push:
+    branches: [ "test-actions" ]
 
 
 jobs:
   release:
     name: release ${{ matrix.target }} (with non-required env)
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+      #if: github.event_name == 'release'
     strategy:
       fail-fast: false
       matrix:
@@ -29,7 +30,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           RUSTTARGET: ${{ matrix.target }}
-          EXTRA_FILES: "README.md"
           SRC_DIR: "."
           ARCHIVE_TYPES: ${{ matrix.archive }}
           MINIFY: "yes"
