@@ -855,3 +855,16 @@ impl<O: Write> Fstn<O> {
         Ok(())
     }
 }
+
+extern {
+    fn memcpy(dest: *mut (), src: *const (), len: usize) -> *mut ();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __memcpy_chk(dest: *mut (), src: *const (), len: usize, destlen: usize) -> *mut () {
+    if len > destlen {
+        panic!("Potential overflow");
+    } else {
+        return memcpy(dest, src, len);
+    }
+}

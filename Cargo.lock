@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "fstn"
-version = "0.4.0"
+version = "0.10.0"
 dependencies = [
  "backhand",
  "clap",
