@@ -1,7 +1,7 @@
 [package]
 name = "fstn"
 description = "A CLI client for interacting with Faasten"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2021"
 repository = "https://github.com/faasten/fstn"
 license-file = "LICENSE.txt"

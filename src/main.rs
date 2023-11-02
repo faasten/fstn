@@ -380,9 +380,10 @@ impl<O: Write> Fstn<O> {
         match action {
             Action::Login => {
                 write!(self.stdout,
-                    "Please paste the API Token found by logging in at {}/login/cas below",
+                    "Please paste the API Token found by logging in at {}/login/cas below\n> ",
                     self.server
                 )?;
+                self.stdout.flush()?;
                 if let Some(Ok(token)) = stdin().lock().lines().next() {
                     self.save_credential(self.user.clone(), token)?;
                     status(&mut self.stderr, &"Login", &"saved")?;
